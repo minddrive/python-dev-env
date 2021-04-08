@@ -6,6 +6,8 @@ This program will install pyenv in one's user environment and ensure
 things are configured so the program is available in one's path.
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import os
@@ -20,69 +22,94 @@ console_handler = logging.StreamHandler()
 logger.addHandler(console_handler)
 
 
-def install_pyenv(pyenv_root: str) -> None:
-    """"""
-    pyenv_repo = "https://github.com/pyenv/pyenv.git"
-    pyenv_root = pathlib.Path(pyenv_root)
-    pyenv_bin = pyenv_root / "bin" / "pyenv"
-    pyenv_venv_repo = "https://github.com/pyenv/pyenv-virtualenv.git"
-    pyenv_venv_root = pyenv_root / "plugins" / "pyenv-virtualenv"
+class Pyenv:
+    """Class to manage a pyenv installation and its plugins"""
+    basedir = "https://github.com/pyenv"
 
-    shell_init_files = {
-        "bash": pathlib.Path.home() / ".bashrc",
-        "zsh": pathlib.Path.home() / ".zshrc"
-    }
+    def __init__(self, root: str) -> None:
+        """Set core and plugin parameters, along with root path
+        for pyenv
 
-    logger.info("Checking for existing pyenv install...")
+        :param root:
+            The base directory to install pyenv
+        :type root: `str`
+        """
+        self.core = "pyenv"
+        self.plugins = ["update", "virtualenv"]
+        self.pyenv_root = pathlib.Path(root)
 
-    if not pyenv_root.exists():
-        logger.info("  pyenv not found, installing...")
-        install_proc = subprocess.run(
-            ["git", "clone", pyenv_repo, pyenv_root], capture_output=True
-        )
-        if install_proc.returncode:
-            raise RuntimeError(install_proc.stderr)
-    else:
-        logger.info("  pyenv seems to be already installed, continuing...")
+    def check_and_install_repo(self, repo: str, plugin=False) -> None:
+        """For pyenv or a plugin, check to see if it's installed,
+        and if not, install it
 
-    logger.info("Checking for existing pyenv-virtualenv install...")
+        :param repo:
+            The name of the repository to check/install
+        :param plugin:
+            Boolean to determine if repository is a plugin or not
+        :type repo: `str`
+        :type plugin: `bool`
 
-    if not pyenv_venv_root.exists():
-        logger.info("  pyenv-virtualenv not found, installing...")
-        install_proc = subprocess.run(
-            ["git", "clone", pyenv_venv_repo, pyenv_venv_root], capture_output=True
-        )
-        if install_proc.returncode:
-            raise RuntimeError(install_proc.stderr)
-    else:
-        logger.info("  pyenv-virtualenv seems to be already installed, continuing...")
+        :raises: :exc:`RuntimeError` if Git clone fails
+        """
+        repo_url = f"{self.basedir}/{repo}.git"
+        install_root = self.pyenv_root / "plugins" / f"{repo}" if plugin \
+            else self.pyenv_root
 
-    logger.info("Verifying the installed pyenv works...")
+        logger.info(f"Checking for existing {repo} install...")
 
-    run_proc = subprocess.run([pyenv_bin, "--version"], capture_output=True)
-    if run_proc.returncode:
-        raise RuntimeError(run_proc.stderr)
+        if not install_root.exists():
+            logger.info("  {repo} not found, installing...")
+            install_proc = subprocess.run(
+                ["git", "clone", repo_url, install_root], capture_output=True
+            )
+            if install_proc.returncode:
+                raise RuntimeError(install_proc.stderr)
+        else:
+            logger.info(f"  {repo} seems to be already installed, continuing...")
 
-    if str(pyenv_root / "bin") not in os.environ["PATH"].split(":"):
-        logger.info("pyenv not in path, adding to init script...")
+    def setup(self) -> None:
+        """Install pyenv and necessary plugins, ensure pyenv is functional,
+        and update the shell's init script if needed
 
-        init_file = shell_init_files[pathlib.Path(os.environ["SHELL"]).name]
-        with open(init_file, "a") as fh:
-            fh.write(textwrap.dedent(f"""
-                # Pyenv setup
-                export PYENV_ROOT={pyenv_root}
-                export PATH="$PYENV_ROOT/bin:$PATH"
-                if command -v pyenv 1>/dev/null 2>&1; then
-                    eval "$(pyenv init -)"
-                    eval "$(pyenv virtualenv-init -)"
-                fi
-            """))
-    else:
-        logger.info("pyenv already in path, continuing...")
+        :raises: :exc:`RuntimeError` if pyenv can't be run
+        """
+        shell_init_files = {
+            "bash": pathlib.Path.home() / ".bashrc",
+            "zsh": pathlib.Path.home() / ".zshrc"
+        }
+
+        self.check_and_install_repo(self.core)
+
+        for plugin in self.plugins:
+            self.check_and_install_repo(f"{self.core}-{plugin}")
+
+        pyenv_bin = self.pyenv_root / "bin" / "pyenv"
+        run_proc = subprocess.run([pyenv_bin, "--version"], capture_output=True)
+        if run_proc.returncode:
+            raise RuntimeError(run_proc.stderr)
+
+        if str(self.pyenv_root / "bin") not in os.environ["PATH"].split(":"):
+            logger.info("pyenv not in path, adding to init script...")
+
+            init_file = shell_init_files[pathlib.Path(os.environ["SHELL"]).name]
+            with open(init_file, "a") as fh:
+                fh.write(textwrap.dedent(f"""
+                    # Pyenv setup
+                    export PYENV_ROOT={self.pyenv_root}
+                    export PATH="$PYENV_ROOT/bin:$PATH"
+                    if command -v pyenv 1>/dev/null 2>&1; then
+                        eval "$(pyenv init -)"
+                        eval "$(pyenv virtualenv-init -)"
+                    fi
+                """))
+        else:
+            logger.info("pyenv already in path, continuing...")
 
 
 if __name__ == "__main__":
-    """"""
+    """Set default pyenv install location, parse command line, then
+    run the setup
+    """
     default_pyenv = str(pathlib.Path.home() / ".pyenv")
 
     parser = argparse.ArgumentParser(
@@ -93,7 +120,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     try:
-        install_pyenv(args.root)
+        pyenv = Pyenv(args.root)
+        pyenv.setup()
     except RuntimeError as exc:
         logger.error("pyenv install and configuration failed:")
         logger.error(f"    ERROR: {exc}")
