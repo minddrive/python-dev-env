@@ -58,7 +58,7 @@ class Pyenv:
         logger.info(f"Checking for existing {repo} install...")
 
         if not install_root.exists():
-            logger.info("  {repo} not found, installing...")
+            logger.info(f"  {repo} not found, installing...")
             install_proc = subprocess.run(
                 ["git", "clone", repo_url, install_root], capture_output=True
             )
